@@ -1,0 +1,29 @@
+public class AnalisadorLexico {
+    // Símbolos válidos na lógica proposicional
+    private static final String OPERADORES = "~^v<>"; // Corrigido para incluir ">" e "→"
+    private static final String VARIAVEIS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final String PARENTESES = "()";
+
+    public static String verificarFormula(String formula) {
+        for (char c : formula.toCharArray()) {
+            // Ignora espaços em branco
+            if (Character.isWhitespace(c)) {
+                continue;
+            }
+
+            // Verifica se o caractere é válido
+            if (OPERADORES.indexOf(c) == -1 && VARIAVEIS.indexOf(c) == -1 && PARENTESES.indexOf(c) == -1) {
+                return "não";
+            }
+        }
+        return "sim";
+    }
+
+    public static void main(String[] args) {
+        String formula1 = "(A<B)^(C>D)"; // Fórmula 1
+        String formula2 = "~(AvB)"; // Fórmula 2
+
+        System.out.println("Fórmula 1 é válida lexicamente? " + verificarFormula(formula1));
+        System.out.println("Fórmula 2 é válida lexicamente? " + verificarFormula(formula2));
+    }
+}
