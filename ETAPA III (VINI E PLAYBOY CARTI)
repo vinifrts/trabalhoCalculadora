@@ -1,0 +1,632 @@
+import java.util.*;
+
+public class ProvadorTableaux {
+    // Representação das fórmulas em árvore
+    static class Formula {
+        char tipo; // Tipo de fórmula ('v', '^', '>', '<', '∼', 'V')
+        Formula esquerda;
+        Formula direita;
+        char variavel; // Se for uma variável proposicional
+        boolean negada;
+
+        // Construtor para variáveis
+        public Formula(char variavel, boolean negada) {
+            this.tipo = 'V';
+            this.variavel = variavel;
+            this.negada = negada;
+            this.esquerda = null;
+            this.direita = null;
+        }
+
+        // Construtor para conectivos unários (negação)
+        public Formula(char tipo, Formula esquerda) {
+            this.tipo = tipo;
+            this.esquerda = esquerda;
+            this.direita = null;
+            this.negada = false;
+        }
+
+        // Construtor para conectivos binários
+        public Formula(char tipo, Formula esquerda, Formula direita) {
+            this.tipo = tipo;
+            this.esquerda = esquerda;
+            this.direita = direita;
+            this.negada = false;
+        }
+
+        @Override
+        public String toString() {
+            if (tipo == 'V') {
+                return (negada ? "∼" : "") + variavel;
+            } else if (tipo == '∼') {
+                return "∼(" + esquerda.toString() + ")";
+            } else {
+                String op = "";
+                switch (tipo) {
+                    case '^': op = " ∧ "; break; // Para a conjunção
+                    case 'v': op = " v "; break; // Para a disjunção
+                    case '>': op = " → "; break; // Para o condicional
+                    case '<': op = " ↔ "; break; // Para o bicondicional
+                }
+                return "(" + esquerda.toString() + op + direita.toString() + ")";
+            }
+        }
+    }
+
+    // Classe para representar um nó no tableau
+    static class No {
+        List<Formula> formulas;
+        No esquerdo;
+        No direito;
+        boolean fechado;
+
+        public No(List<Formula> formulas) {
+            this.formulas = formulas;
+            this.esquerdo = null;
+            this.direito = null;
+            this.fechado = false;
+        }
+    }
+
+    // Parser para converter string em árvore de fórmulas
+    private static int pos;
+    private static String formulaStr;
+
+    public static Formula parseFormula(String input) {
+        formulaStr = input.replaceAll("\\s+", ""); // Remove espaços
+        formulaStr = formulaStr.replace('~', '∼'); // Substitui ~ por ∼
+        pos = 0;
+        return parseExpressao();
+    }
+
+    private static Formula parseExpressao() {
+        Formula formula = parseDisjuncao();
+        return formula;
+    }
+
+    private static Formula parseDisjuncao() {
+        Formula esquerda = parseConjuncao();
+
+        while (pos < formulaStr.length() && formulaStr.charAt(pos) == 'v') {
+            pos++;
+            Formula direita = parseConjuncao();
+            esquerda = new Formula('v', esquerda, direita);
+        }
+
+        return esquerda;
+    }
+
+    private static Formula parseConjuncao() {
+        Formula esquerda = parseCondicional();
+
+        while (pos < formulaStr.length() && formulaStr.charAt(pos) == '^') {
+            pos++;
+            Formula direita = parseCondicional();
+            esquerda = new Formula('^', esquerda, direita);
+        }
+
+        return esquerda;
+    }
+
+    private static Formula parseCondicional() {
+        Formula esquerda = parseBicondicional();
+
+        while (pos < formulaStr.length() && formulaStr.charAt(pos) == '>') {
+            pos++;
+            Formula direita = parseBicondicional();
+            esquerda = new Formula('>', esquerda, direita);
+        }
+
+        return esquerda;
+    }
+
+    private static Formula parseBicondicional() {
+        Formula esquerda = parseNegacao();
+
+        while (pos < formulaStr.length() && formulaStr.charAt(pos) == '<') {
+            pos++;
+            Formula direita = parseNegacao();
+            esquerda = new Formula('<', esquerda, direita);
+        }
+
+        return esquerda;
+    }
+
+    private static Formula parseNegacao() {
+        if (pos < formulaStr.length() && (formulaStr.charAt(pos) == '~' || formulaStr.charAt(pos) == '∼')) {
+            pos++; // Consome o caractere de negação
+
+            if (pos < formulaStr.length() && isVariavel(formulaStr.charAt(pos))) {
+                // Negação de uma variável
+                char variavel = formulaStr.charAt(pos);
+                pos++;
+                return new Formula(variavel, true);
+            } else if (pos < formulaStr.length() && (formulaStr.charAt(pos) == '~' || formulaStr.charAt(pos) == '∼')) {
+                // Dupla negação (~~)
+                Formula operando = parseNegacao(); // Chama recursivamente para processar a próxima negação
+                return new Formula('∼', operando);
+            } else if (pos < formulaStr.length() && formulaStr.charAt(pos) == '(') {
+                // Negação de uma expressão entre parênteses
+                Formula operando = parseAtomico();
+                return new Formula('∼', operando);
+            } else {
+                throw new RuntimeException("Expressão de negação inválida");
+            }
+        }
+
+        return parseAtomico();
+    }
+
+    private static boolean isVariavel(char c) {
+        return c >= 'A' && c <= 'Z';
+    }
+
+    private static Formula parseAtomico() {
+        if (pos >= formulaStr.length()) {
+            throw new RuntimeException("Fórmula incompleta");
+        }
+
+        char c = formulaStr.charAt(pos);
+
+        if (isVariavel(c)) {
+            pos++;
+            return new Formula(c, false);
+        }
+
+        if (c == '(') {
+            pos++; // Consome '('
+            Formula formula = parseExpressao();
+
+            if (pos >= formulaStr.length() || formulaStr.charAt(pos) != ')') {
+                throw new RuntimeException("Parênteses não fechado");
+            }
+
+            pos++; // Consome ')'
+            return formula;
+        }
+
+        if (c == '~' || c == '∼') {
+            return parseNegacao(); // Redireciona para parseNegacao se encontrar um símbolo de negação
+        }
+
+        throw new RuntimeException("Símbolo inesperado: " + c);
+    }
+
+    // Método principal que verifica se uma fórmula é uma tautologia
+    public static boolean verificarTautologia(String formulaStr) {
+        // Parseamos a fórmula
+        Formula formula = parseFormula(formulaStr);
+
+        // Criamos a negação da fórmula (para provar por refutação)
+        Formula negacao = new Formula('∼', formula);
+
+        // Criamos o tableau começando com a negação da fórmula
+        List<Formula> inicial = new ArrayList<>();
+        inicial.add(negacao);
+        No raiz = new No(inicial);
+
+        // Expandimos o tableau
+        expandirTableau(raiz);
+
+        // Verificamos se todas as ramificações estão fechadas
+        return todosRamosFechados(raiz);
+    }
+
+    // Método para expandir o tableau recursivamente
+    private static void expandirTableau(No no) {
+        if (no.fechado) {
+            return;
+        }
+
+        // Verifica se o nó está fechado (contradição)
+        if (temContradicao(no.formulas)) {
+            no.fechado = true;
+            return;
+        }
+
+        // Procura por uma fórmula não atômica para expandir
+        Optional<Formula> formulaParaExpandir = encontrarFormulaParaExpandir(no.formulas);
+
+        if (!formulaParaExpandir.isPresent()) {
+            // Nó é um literal ou está completamente expandido
+            return;
+        }
+
+        Formula formula = formulaParaExpandir.get();
+        List<Formula> novasFormulas = new ArrayList<>(no.formulas);
+        novasFormulas.remove(formula);
+
+        // Aplica as regras de expansão conforme o tipo da fórmula
+        if (formula.tipo == '∼') {
+            if (formula.esquerda.tipo == '∼') {
+                // Regra da dupla negação: ∼∼A → A
+                novasFormulas.add(formula.esquerda.esquerda);
+                no.formulas = novasFormulas;
+                expandirTableau(no);
+            } else if (formula.esquerda.tipo == '^') {
+                // Regra da negação da conjunção: ∼(A ∧ B) → ∼A v ∼B
+                List<Formula> ramoEsquerdo = new ArrayList<>(novasFormulas);
+                ramoEsquerdo.add(new Formula('∼', formula.esquerda.esquerda));
+
+                List<Formula> ramoDireito = new ArrayList<>(novasFormulas);
+                ramoDireito.add(new Formula('∼', formula.esquerda.direita));
+
+                no.esquerdo = new No(ramoEsquerdo);
+                no.direito = new No(ramoDireito);
+
+                expandirTableau(no.esquerdo);
+                expandirTableau(no.direito);
+            } else if (formula.esquerda.tipo == 'v') {
+                // Regra da negação da disjunção: ∼(A v B) → ∼A ∧ ∼B
+                novasFormulas.add(new Formula('∼', formula.esquerda.esquerda));
+                novasFormulas.add(new Formula('∼', formula.esquerda.direita));
+
+                no.formulas = novasFormulas;
+                expandirTableau(no);
+            } else if (formula.esquerda.tipo == '>') {
+                // Regra da negação do condicional: ∼(A → B) → A ∧ ∼B
+                novasFormulas.add(formula.esquerda.esquerda);
+                novasFormulas.add(new Formula('∼', formula.esquerda.direita));
+
+                no.formulas = novasFormulas;
+                expandirTableau(no);
+            } else if (formula.esquerda.tipo == '<') {
+                // Regra da negação do bicondicional: ∼(A ↔ B) → (A ∧ ∼B) v (∼A ∧ B)
+                List<Formula> ramoEsquerdo = new ArrayList<>(novasFormulas);
+                ramoEsquerdo.add(formula.esquerda.esquerda);
+                ramoEsquerdo.add(new Formula('∼', formula.esquerda.direita));
+
+                List<Formula> ramoDireito = new ArrayList<>(novasFormulas);
+                ramoDireito.add(new Formula('∼', formula.esquerda.esquerda));
+                ramoDireito.add(formula.esquerda.direita);
+
+                no.esquerdo = new No(ramoEsquerdo);
+                no.direito = new No(ramoDireito);
+
+                expandirTableau(no.esquerdo);
+                expandirTableau(no.direito);
+            }
+        } else if (formula.tipo == '^') {
+            // Regra da conjunção: A ∧ B → A, B
+            novasFormulas.add(formula.esquerda);
+            novasFormulas.add(formula.direita);
+
+            no.formulas = novasFormulas;
+            expandirTableau(no);
+        } else if (formula.tipo == 'v') {
+            // Regra da disjunção: A v B → A | B
+            List<Formula> ramoEsquerdo = new ArrayList<>(novasFormulas);
+            ramoEsquerdo.add(formula.esquerda);
+
+            List<Formula> ramoDireito = new ArrayList<>(novasFormulas);
+            ramoDireito.add(formula.direita);
+
+            no.esquerdo = new No(ramoEsquerdo);
+            no.direito = new No(ramoDireito);
+
+            expandirTableau(no.esquerdo);
+            expandirTableau(no.direito);
+        } else if (formula.tipo == '>') {
+            // Regra do condicional: A → B → ∼A | B
+            List<Formula> ramoEsquerdo = new ArrayList<>(novasFormulas);
+            ramoEsquerdo.add(new Formula('∼', formula.esquerda));
+
+            List<Formula> ramoDireito = new ArrayList<>(novasFormulas);
+            ramoDireito.add(formula.direita);
+
+            no.esquerdo = new No(ramoEsquerdo);
+            no.direito = new No(ramoDireito);
+
+            expandirTableau(no.esquerdo);
+            expandirTableau(no.direito);
+        } else if (formula.tipo == '<') {
+            // Regra do bicondicional: A ↔ B → (A ∧ B) | (∼A ∧ ∼B)
+            List<Formula> ramoEsquerdo = new ArrayList<>(novasFormulas);
+            ramoEsquerdo.add(formula.esquerda);
+            ramoEsquerdo.add(formula.direita);
+
+            List<Formula> ramoDireito = new ArrayList<>(novasFormulas);
+            ramoDireito.add(new Formula('∼', formula.esquerda));
+            ramoDireito.add(new Formula('∼', formula.direita));
+
+            no.esquerdo = new No(ramoEsquerdo);
+            no.direito = new No(ramoDireito);
+
+            expandirTableau(no.esquerdo);
+            expandirTableau(no.direito);
+        }
+    }
+
+    // Verifica se há uma contradição nas fórmulas (P e ∼P)
+    private static boolean temContradicao(List<Formula> formulas) {
+        for (int i = 0; i < formulas.size(); i++) {
+            Formula f1 = formulas.get(i);
+            if (f1.tipo == 'V') {
+                for (int j = 0; j < formulas.size(); j++) {
+                    Formula f2 = formulas.get(j);
+                    if (f2.tipo == '∼' && f2.esquerda.tipo == 'V' &&
+                            f2.esquerda.variavel == f1.variavel) {
+                        return true;
+                    }
+                    if (f2.tipo == 'V' && f2.variavel == f1.variavel &&
+                            f1.negada != f2.negada) {
+                        return true;
+                    }
+                }
+            }
+            if (f1.tipo == '∼' && f1.esquerda.tipo == 'V') {
+                for (int j = 0; j < formulas.size(); j++) {
+                    Formula f2 = formulas.get(j);
+                    if (f2.tipo == 'V' && f2.variavel == f1.esquerda.variavel && !f2.negada) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Encontra uma fórmula não atômica para expandir
+    private static Optional<Formula> encontrarFormulaParaExpandir(List<Formula> formulas) {
+        for (Formula f : formulas) {
+            if (f.tipo != 'V') {
+                if (f.tipo == '∼' && f.esquerda.tipo == 'V') {
+                    continue; // Pula negações de literais
+                }
+                return Optional.of(f);
+            }
+        }
+        return Optional.empty();
+    }
+
+    // Verifica se todos os ramos do tableau estão fechados
+    private static boolean todosRamosFechados(No no) {
+        if (no == null) {
+            return true;
+        }
+
+        if (no.fechado) {
+            return true;
+        }
+
+        if (no.esquerdo == null && no.direito == null) {
+            // É uma folha, deveria estar fechada se é um tableau fechado
+            return false;
+        }
+
+        if (no.esquerdo != null && no.direito != null) {
+            return todosRamosFechados(no.esquerdo) && todosRamosFechados(no.direito);
+        } else if (no.esquerdo != null) {
+            return todosRamosFechados(no.esquerdo);
+        } else {
+            return todosRamosFechados(no.direito);
+        }
+    }
+
+    // MÉTODOS PARA EXIBIR A TABELA VERDADE
+
+    // Método para encontrar todas as variáveis proposicionais em uma fórmula
+    private static Set<Character> encontrarVariaveis(Formula formula) {
+        Set<Character> variaveis = new HashSet<>();
+        coletarVariaveis(formula, variaveis);
+        return variaveis;
+    }
+
+    // Método auxiliar para coletar todas as variáveis recursivamente
+    private static void coletarVariaveis(Formula formula, Set<Character> variaveis) {
+        if (formula == null) {
+            return;
+        }
+
+        if (formula.tipo == 'V') {
+            variaveis.add(formula.variavel);
+        } else {
+            coletarVariaveis(formula.esquerda, variaveis);
+            if (formula.direita != null) {
+                coletarVariaveis(formula.direita, variaveis);
+            }
+        }
+    }
+
+    // Método para avaliar uma fórmula com uma atribuição específica de variáveis
+    private static boolean avaliarFormula(Formula formula, Map<Character, Boolean> atribuicao) {
+        if (formula == null) {
+            return false;
+        }
+
+        // Caso base: variável proposicional
+        if (formula.tipo == 'V') {
+            boolean valor = atribuicao.getOrDefault(formula.variavel, false);
+            return formula.negada ? !valor : valor;
+        }
+
+        // Negação
+        if (formula.tipo == '∼') {
+            return !avaliarFormula(formula.esquerda, atribuicao);
+        }
+
+        // Conjunção
+        if (formula.tipo == '^') {
+            return avaliarFormula(formula.esquerda, atribuicao) &&
+                    avaliarFormula(formula.direita, atribuicao);
+        }
+
+        // Disjunção
+        if (formula.tipo == 'v') {
+            return avaliarFormula(formula.esquerda, atribuicao) ||
+                    avaliarFormula(formula.direita, atribuicao);
+        }
+
+        // Condicional
+        if (formula.tipo == '>') {
+            boolean antecedente = avaliarFormula(formula.esquerda, atribuicao);
+            boolean consequente = avaliarFormula(formula.direita, atribuicao);
+            return !antecedente || consequente;
+        }
+
+        // Bicondicional
+        if (formula.tipo == '<') {
+            boolean esq = avaliarFormula(formula.esquerda, atribuicao);
+            boolean dir = avaliarFormula(formula.direita, atribuicao);
+            return esq == dir;
+        }
+
+        return false;
+    }
+
+    // Método para classificar uma fórmula como tautologia, contradição ou contingência
+    public static String classificarFormula(String formulaStr) {
+        Formula formula = parseFormula(formulaStr);
+
+        Set<Character> variaveis = encontrarVariaveis(formula);
+        List<Character> variaveisOrdenadas = new ArrayList<>(variaveis);
+        int numCombinacoes = (int) Math.pow(2, variaveis.size());
+
+        boolean todasVerdadeiras = true;
+        boolean todasFalsas = true;
+
+        for (int i = 0; i < numCombinacoes; i++) {
+            Map<Character, Boolean> atribuicao = new HashMap<>();
+
+            for (int j = 0; j < variaveisOrdenadas.size(); j++) {
+                char variavel = variaveisOrdenadas.get(j);
+                boolean valor = ((i >> (variaveisOrdenadas.size() - j - 1)) & 1) == 1;
+                atribuicao.put(variavel, valor);
+            }
+
+            boolean resultado = avaliarFormula(formula, atribuicao);
+
+            if (!resultado) {
+                todasVerdadeiras = false;
+            }
+            if (resultado) {
+                todasFalsas = false;
+            }
+        }
+
+        if (todasVerdadeiras) {
+            return "sim";
+        } else if (todasFalsas) {
+            return "não - é uma contradição";
+        } else {
+            return "não - é uma contingência";
+        }
+    }
+
+    // Método para exibir a tabela verdade
+    public static void exibirTabelaVerdade(String formulaStr) {
+        Formula formula = parseFormula(formulaStr);
+
+        // Coletar variáveis e subfórmulas importantes
+        Set<Character> variaveis = encontrarVariaveis(formula);
+        List<Character> variaveisOrdenadas = new ArrayList<>(variaveis);
+        Collections.sort(variaveisOrdenadas);
+
+        // Identificar subfórmulas importantes
+        List<Formula> subfórmulas = identificarSubfórmulasImportantes(formula);
+
+        // Cabeçalho da tabela - variáveis
+        for (char variavel : variaveisOrdenadas) {
+            System.out.print(variavel + " | ");
+        }
+
+        // Cabeçalho da tabela - subfórmulas
+        for (Formula subfórmula : subfórmulas) {
+            System.out.print(subfórmula.toString() + " | ");
+        }
+
+        // Cabeçalho da tabela - fórmula completa
+        System.out.println(formulaStr);
+
+        // Separador
+        for (int i = 0; i < variaveisOrdenadas.size(); i++) {
+            System.out.print("--| ");
+        }
+
+        for (int i = 0; i < subfórmulas.size(); i++) {
+            System.out.print("-".repeat(subfórmulas.get(i).toString().length()) + " | ");
+        }
+
+        System.out.println("-".repeat(Math.max(1, formulaStr.length())));
+
+        // Gerar todas as possíveis atribuições de valores
+        int numCombinacoes = (int) Math.pow(2, variaveis.size());
+
+        for (int i = 0; i < numCombinacoes; i++) {
+            Map<Character, Boolean> atribuicao = new HashMap<>();
+
+            // Converter o número i para uma atribuição de valores
+            for (int j = 0; j < variaveisOrdenadas.size(); j++) {
+                char variavel = variaveisOrdenadas.get(j);
+                boolean valor = ((i >> (variaveisOrdenadas.size() - j - 1)) & 1) == 1;
+                atribuicao.put(variavel, valor);
+                System.out.print((valor ? "V" : "F") + " | ");
+            }
+
+            // Avaliar cada subfórmula com esta atribuição
+            for (Formula subfórmula : subfórmulas) {
+                boolean resultado = avaliarFormula(subfórmula, atribuicao);
+                System.out.print((resultado ? "V" : "F") + " ".repeat(subfórmula.toString().length() - 1) + " | ");
+            }
+
+            // Avaliar a fórmula completa com esta atribuição
+            boolean resultado = avaliarFormula(formula, atribuicao);
+            System.out.println(resultado ? "V" : "F");
+        }
+    }
+
+    // Método para identificar subfórmulas importantes
+    private static List<Formula> identificarSubfórmulasImportantes(Formula formula) {
+        List<Formula> subfórmulas = new ArrayList<>();
+
+        // Se a fórmula é um operador binário, incluir ambos os lados
+        if (formula.tipo == 'v' || formula.tipo == '^' ||
+                formula.tipo == '>' || formula.tipo == '<') {
+
+            // Adicionar o lado esquerdo se for uma fórmula complexa
+            if (formula.esquerda.tipo != 'V') {
+                subfórmulas.add(formula.esquerda);
+            }
+
+            // Adicionar o lado direito se for uma fórmula complexa
+            if (formula.direita.tipo != 'V') {
+                subfórmulas.add(formula.direita);
+            }
+        }
+        // Se a fórmula é uma negação e o operando é complexo
+        else if (formula.tipo == '∼' && formula.esquerda.tipo != 'V') {
+            subfórmulas.add(formula.esquerda);
+        }
+
+        return subfórmulas;
+    }
+
+    public static void main(String[] args) {
+        // Exemplos para testar
+        String[] formulas = {
+                "PvQ",
+                "(P>Q)vP",
+                "(P>Q)<(~Q>~P)",
+                "P>P",
+                "P<~~P",
+                "~P>Q",
+                "((P^P)<P)",
+                "(P>Q)v(Q>P)",
+                "P>~Q",
+                "(P^~P)" // Contradição adicional para testar
+        };
+
+        for (String formula : formulas) {
+            System.out.println("\n=== Análise da fórmula: " + formula + " ===");
+            System.out.println("Fórmula interpretada: " + parseFormula(formula).toString());
+
+            String classificacao = classificarFormula(formula);
+            System.out.println("A fórmula '" + formula + "' é uma tautologia? " + classificacao);
+
+            System.out.println("\nTabela Verdade:");
+            exibirTabelaVerdade(formula);
+
+            System.out.println("\n" + "=".repeat(40));
+        }
+    }
+}
